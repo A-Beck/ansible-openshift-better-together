@@ -1,0 +1,29 @@
+---
+- name: Onboard a new team member 
+  hosts: localhost
+  vars:
+    gitea_api_base_url: https://gittea-better-together-git.apps.dev-test.hcaocp.com/api/v1/
+    gitea_repo: 
+  tasks:
+  
+  - name: assert that all required variables are present
+    assert:
+      that:
+      - username is defined
+  
+  - name: Query gittea for active users
+    ansible.builtin.uri:
+      url: "{{ gitea_api_base_url }}/users/{{ username | urlencode }}"
+      user: "{{ gitea_ops_user }}"
+      password: "{{ gitea_ops_password }}"
+      status_code: [200, 404]  # Both success and not found status codes are expected
+    register: gitea_user_query
+
+  - name: Create user if one does not exist
+    when: gitea_user_query.status == 404
+    block:
+      - name: Create user
+        debug: Creating User {{ username }}
+
+      
+      

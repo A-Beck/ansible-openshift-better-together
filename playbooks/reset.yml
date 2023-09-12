@@ -12,6 +12,7 @@
       cmd: > 
         oc adm policy remove-role-from-user edit {{ username | urlencode  | quote }} 
         -n topsecret-project-dev
+        --insecure-skip-tls-verify=true
         --token {{ k8s_api_key | quote }}
         --server {{ k8s_host | quote }}
 
@@ -20,6 +21,7 @@
     ansible.builtin.command:
       cmd: >
         oc delete project "{{ username }}-sandbox"
+        --insecure-skip-tls-verify=true
         --token {{ k8s_api_key | quote }}
         --server {{ k8s_host | quote }}
 

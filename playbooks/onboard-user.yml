@@ -1,29 +1,103 @@
 ---
+
 - name: Onboard a new team member 
   hosts: localhost
   vars:
-    gitea_api_base_url: https://gittea-better-together-git.apps.dev-test.hcaocp.com/api/v1/
-    gitea_repo: 
+    gitea_org: OpenShift 
   tasks:
   
   - name: assert that all required variables are present
     assert:
       that:
       - username is defined
+      - user_email is defined
+      - user_fullname is defined
   
   - name: Query gittea for active users
     ansible.builtin.uri:
       url: "{{ gitea_api_base_url }}/users/{{ username | urlencode }}"
       user: "{{ gitea_ops_user }}"
-      password: "{{ gitea_ops_password }}"
       status_code: [200, 404]  # Both success and not found status codes are expected
+      headers:
+        Authorization: token {{ gitea_ops_token }}
     register: gitea_user_query
 
   - name: Create user if one does not exist
     when: gitea_user_query.status == 404
-    block:
-      - name: Create user
-        debug: Creating User {{ username }}
+    ansible.builtin.uri:
+      url: "{{ gitea_api_base_url }}/admin/users"
+      body:
+        email: "{{ user_email }}"
+        full_name: "{{ user_fullname }}"
+        login_name: "{{ username }}"
+        password: DevSpacesIsCool
+        username: "{{ username }}"
+        must_change_password: false
+      status_code: [200, 201]
+      body_format: json
+      method: post
+      headers:
+        Authorization: token {{ gitea_ops_token }}
+      user: "{{ gitea_ops_user }}"
+    register: new_gitea_user        
+      
+  - name: Get all Teams in the OpenShift Organization
+    ansible.builtin.uri:
+      url: "{{ gitea_api_base_url }}/orgs/{{ gitea_org }}/teams"
+      method: get
+      headers:
+        Authorization: token {{ gitea_ops_token }}
+      user: "{{ gitea_ops_user }}"
+    register: org_teams
 
-      
-      
+  - name: Get the developer team ID
+    when: item.name == 'Developers'
+    ansible.builtin.set_fact:
+      dev_team_id: "{{ item.id }}"
+    loop: "{{ org_teams.json }}"
+
+  - ansible.builtin.uri:
+      url: "{{ gitea_api_base_url }}/teams/{{dev_team_id }}/members/{{ username }}"
+      method: put
+      headers:
+        Authorization: token {{ gitea_ops_token }}
+      user: "{{ gitea_ops_user }}"
+      status_code:
+        - 204
+
+  - name: Create a Openshift playground namespace for the new user
+    kubernetes.core.k8s:
+      name: "{{ username | urlencode }}-sandbox"
+      api_version: v1
+      kind: Namespace
+      state: present
+      api_key: "{{ k8s_api_key | default( omit ) }}"
+      host: "{{ k8s_host | default( omit ) }}"
+
+  - name: Make the new user the owner of their sandbox workspace
+    kubernetes.core.k8s:
+      state: present
+      api_key: "{{ k8s_api_key | default( omit ) }}"
+      host: "{{ k8s_host | default( omit ) }}"
+      definition:
+        kind: RoleBinding
+        apiVersion: rbac.authorization.k8s.io/v1
+        metadata:
+          name: "{{ username | urlencode }}-sbxadmin"
+          namespace: "{{ username | urlencode }}-sandbox"
+        subjects:
+          - kind: User
+            apiGroup: rbac.authorization.k8s.io
+            name: "{{ username | urlencode }}"
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: admin  
+
+  - name: Ensure developer access to the team dev workspace
+    ansible.builtin.command:
+      cmd: > 
+        oc adm policy add-role-to-user edit {{ username | urlencode  | quote }} 
+        -n topsecret-project-dev
+        --token {{ k8s_api_key | quote }}
+        --server {{ k8s_host | quote }}

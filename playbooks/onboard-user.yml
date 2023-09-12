@@ -97,10 +97,10 @@
           kind: ClusterRole
           name: admin  
 
-  - name: Ensure developer access to the team dev workspace
+  - name: Ensure developer access to the team dev workspace # noqa: no-changed-when
     ansible.builtin.command:
-      cmd: > 
-        oc adm policy add-role-to-user edit {{ username | urlencode  | quote }} 
+      cmd: >
+        oc adm policy add-role-to-user edit {{ username | urlencode | quote }} 
         -n topsecret-project-dev
         --insecure-skip-tls-verify=true
         --token {{ k8s_api_key | quote }}
